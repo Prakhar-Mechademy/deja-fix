@@ -1,6 +1,4 @@
-import os
-import chatbot
-import database
+import os, chatbot, database
 
 if os.path.exists(database.DB_PATH):
     os.remove(database.DB_PATH)
@@ -9,11 +7,7 @@ database.init_db()
 print("=== SESSION 1: Escalation & Extraction (Customer A) ===")
 s1 = chatbot.start_session("customer_a", "session_1")
 print("Bot:", s1["greeting"])
-r1 = chatbot.handle_message(
-    "session_1",
-    "customer_a",
-    "Hi, I'm Alice (alice@test.com, order #9821). Cloud sync fails with Error 503 on MacBook Pro macOS 15.1 app v4.2. Restarting failed.",
-)
+r1 = chatbot.handle_message("session_1", "customer_a", "Hi, I'm Alice (alice@test.com, order #9821). Cloud sync fails with Error 503 on MacBook Pro macOS 15.1 app v4.2. Restarting failed.")
 print(f"Bot [{r1['route']}]:", r1["reply"])
 r2 = chatbot.handle_message("session_1", "customer_a", "That worked! Clearing the sync cache fixed it.")
 print(f"Bot [{r2['route']}]:", r2["reply"])
@@ -30,10 +24,11 @@ if b1["route"] == "clarify":
 b3 = chatbot.handle_message("session_2", "customer_b", "Awesome, that fixed it!")
 print(f"Bot [{b3['route']}]:", b3["reply"])
 
-print("\n--- SESSION 3: Memory Isolation (Customer A Returns) ---")
+print("\n=== SESSION 3: Memory Isolation (Customer A Returns) ===")
 s3 = chatbot.start_session("customer_a", "session_3")
 print("Bot:", s3["greeting"])
 
 print("\n=== TOKEN USAGE COMPARISON ===")
 print("Session 1 (Escalated):", database.get_token_totals("session_1"))
 print("Session 2 (Hub Reuse):", database.get_token_totals("session_2"))
+print("\n=== DEMO COMPLETE ===")
