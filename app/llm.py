@@ -111,7 +111,7 @@ def generate(session_id, user_id, kind, contents, system=None, json_mode=False, 
 
         def provider_call():
             return _client().models.generate_content(
-                model=config.GEMINI_MODEL,
+                model=attempt_model,
                 contents=_parts(payload),
                 config=provider_config,
             )
@@ -131,6 +131,8 @@ def generate(session_id, user_id, kind, contents, system=None, json_mode=False, 
     attempts = 0
     payload = list(contents)
     use_thinking = True
+    flash_fallback = "gemini-3.1-flash-lite" if config.GEMINI_MODEL != "gemini-3.1-flash-lite" else "gemini-3.5-flash-lite"
+    attempt_model = config.GEMINI_MODEL
     while attempts < 2:
         attempts += 1
         try:
@@ -167,6 +169,7 @@ def generate(session_id, user_id, kind, contents, system=None, json_mode=False, 
 
             logger.exception("Gemini generate failed for kind=%s", kind)
             if attempts < 2 and _transient(exc):
+                attempt_model = flash_fallback
                 time.sleep(1)
                 continue
             return failure

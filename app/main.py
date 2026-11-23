@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
 from app import chat, config, db
@@ -255,6 +255,19 @@ def token_stats():
             "average_total_tokens_escalated": average(escalated_totals),
         },
     }
+
+
+@app.get("/", include_in_schema=False)
+@app.get("/dashboard", include_in_schema=False)
+def dashboard():
+    return FileResponse("app/static/dashboard.html")
+
+
+@app.get("/api/dashboard/overview", include_in_schema=False)
+def dashboard_overview():
+    with db.get_conn() as conn:
+        rows = conn.execute("SELECT id FROM users ORDER BY id DESC").fetchall()
+    return {"users": [row["id"] for row in rows]}
 
 
 @app.get("/health")

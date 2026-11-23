@@ -36,6 +36,7 @@ def clean_db() -> None:
 def server_env(limit: int = 100, escalation: int = 50) -> dict:
     env = os.environ.copy()
     env.update({
+        "GEMINI_MODEL": "gemini-3.5-flash-lite",
         "DB_PATH": str(DB_FILE),
         "MSG_LIMIT_PER_MIN": str(limit),
         "ESC_LIMIT_PER_HOUR": str(escalation),
