@@ -10,6 +10,7 @@ class Settings(BaseSettings):
 
     GEMINI_API_KEY: str
     GEMINI_MODEL: str = "gemini-3.5-flash"
+    ADMIN_TOKEN: str | None = None
 
     EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"
 

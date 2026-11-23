@@ -25,3 +25,7 @@ shared knowledge: sanitised, verified solutions accessible across customers.
 
 a session needs to have  messages, solution from gemini, and an llm usage report. 
 
+
+
+API design:
+
