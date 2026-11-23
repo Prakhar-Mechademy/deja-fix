@@ -1,6 +1,6 @@
 # Déjà Fix
 
-**Self-learning RAG customer support chatbot using Gemini and SQLite.**
+**Self-learning RAG customer support chatbot using Gemini and SQLite. (Created using Gemini Hydrogen)**
 
 ## 1. Install
 ```bash
