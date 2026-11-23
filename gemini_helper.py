@@ -4,7 +4,7 @@ from google import genai
 from google.genai import types
 import database
 
-MODELS = ["gemini-3.1-flash-lite", "gemini-2.5-flash-lite"]
+MODELS = ["gemini-3.1-flash-lite", "gemini-3.5-flash-lite"]
 _CLIENT = None
 
 def _get_client():
