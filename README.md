@@ -24,4 +24,16 @@ Rather than treating every customer query as a new problem, DejaFix aims to buil
 
 ### Current Status
 DejaFix is a prototype demonstrating the concept of AI-assisted customer support and reusable organizational knowledge. Some advanced features remain under development.
+Running Locally
+
+Clone the repository:
+
+git clone YOUR_GITHUB_REPOSITORY_URL
+cd YOUR_PROJECT_FOLDER
+
+Install dependencies:
+
+pip install -r requirements.txt
+
+Configure the required
 
