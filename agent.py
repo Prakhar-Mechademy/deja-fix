@@ -25,8 +25,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from dotenv import load_dotenv
-load_dotenv(Path(__file__).with_name(".env"))
-load_dotenv(Path(__file__).with_name("api_key.env"))
+load_dotenv(Path(__file__).with_name(".env"), override=True)
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("deja_fix")
 

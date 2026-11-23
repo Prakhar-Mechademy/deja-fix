@@ -1,6 +1,6 @@
 """Terminal chat and database inspector for Déjà Fix.
 
-Use the configured Gemini key in api_key.env or GEMINI_API_KEY in the environment.
+Use the configured Gemini key from the project .env file.
 The ordinary chat mode uses the persistent database configured by DATABASE_PATH.
 """
 
@@ -132,7 +132,7 @@ def interactive_chat() -> None:
     global _active_session_id
     provider = agent.get_provider()
     if not provider.has_api_key:
-        print("No API key found. Add GEMINI_API_KEY to the environment or set gemini_key in api_key.env.")
+        print("No API key found. Add GEMINI_API_KEY=... to the project .env file.")
         print("For Gemini, the default embedding model is gemini-embedding-001 and the chat model is gemini-2.5-flash.")
         return
 

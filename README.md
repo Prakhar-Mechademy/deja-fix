@@ -12,7 +12,7 @@ python3 -m venv .venv
 python -m pip install -r requirements.txt
 ```
 
-Configure Gemini using the existing local `api_key.env` (`gemini_key=...`) or the `GEMINI_API_KEY` environment variable. The defaults are `gemini-2.5-flash` for chat and `gemini-embedding-001` for embeddings. Keys are read at runtime and must not be committed.
+Configure Gemini only in the project `.env` file using `GEMINI_API_KEY=...` (or `gemini_key=...`). The `.env` file is git-ignored. The defaults are `gemini-2.5-flash` for chat and `gemini-embedding-001` for embeddings. Keys are read at runtime and must not be committed. Other app settings can also be placed in `.env`; its values take precedence over inherited shell variables.
 
 Start the chat:
 
