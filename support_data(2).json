@@ -1,0 +1,211 @@
+{
+  "schema_version": 1,
+  "customers": {
+    "customer-001": {
+      "id": "customer-001",
+      "created_at": "2026-11-23T09:28:46+00:00",
+      "last_seen_at": "2026-11-23T10:03:20+00:00"
+    }
+  },
+  "sessions": {
+    "sess_284qmgw3HfV7": {
+      "id": "sess_284qmgw3HfV7",
+      "user_id": "customer-001",
+      "title": "I am having an issue with resetting my password",
+      "state": {},
+      "created_at": "2026-11-23T09:28:46+00:00",
+      "updated_at": "2026-11-23T09:30:38+00:00"
+    },
+    "sess_x1-dY6bAGguS": {
+      "id": "sess_x1-dY6bAGguS",
+      "user_id": "customer-001",
+      "title": "Hi, I am unable to log into my account",
+      "state": {},
+      "created_at": "2026-11-23T09:43:44+00:00",
+      "updated_at": "2026-11-23T09:44:18+00:00"
+    },
+    "sess_V585u4ckbjnB": {
+      "id": "sess_V585u4ckbjnB",
+      "user_id": "customer-001",
+      "title": "New support conversation",
+      "state": {},
+      "created_at": "2026-11-23T10:03:20+00:00",
+      "updated_at": "2026-11-23T10:03:20+00:00"
+    }
+  },
+  "messages": [
+    {
+      "id": "msg_V7pIboHvHzak",
+      "session_id": "sess_284qmgw3HfV7",
+      "user_id": "customer-001",
+      "role": "assistant",
+      "content": "Hello! Describe the support issue you are experiencing, and I will look for a verified solution.",
+      "metadata": {
+        "kind": "greeting"
+      },
+      "created_at": "2026-11-23T09:28:46+00:00"
+    },
+    {
+      "id": "msg_Nn12ogcs4EeV",
+      "session_id": "sess_284qmgw3HfV7",
+      "user_id": "customer-001",
+      "role": "user",
+      "content": "I am having an issue with resetting my password",
+      "metadata": {
+        "kind": "customer_message"
+      },
+      "created_at": "2026-11-23T09:29:25+00:00"
+    },
+    {
+      "id": "msg_pJcdMxNg4wnL",
+      "session_id": "sess_284qmgw3HfV7",
+      "user_id": "customer-001",
+      "role": "assistant",
+      "content": "I could not reach Gemini to diagnose this request. Please check the GEMINI_API_KEY and your internet connection, then try again. Technical detail: Gemini API returned HTTP 503: This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.",
+      "metadata": {
+        "kind": "llm_error"
+      },
+      "created_at": "2026-11-23T09:29:32+00:00"
+    },
+    {
+      "id": "msg_vKmNw8knPtQm",
+      "session_id": "sess_284qmgw3HfV7",
+      "user_id": "customer-001",
+      "role": "user",
+      "content": "I cannot reset my password",
+      "metadata": {
+        "kind": "customer_message"
+      },
+      "created_at": "2026-11-23T09:30:25+00:00"
+    },
+    {
+      "id": "msg_mWJjOSsGjr-z",
+      "session_id": "sess_284qmgw3HfV7",
+      "user_id": "customer-001",
+      "role": "assistant",
+      "content": "I could not reach Gemini to diagnose this request. Please check the GEMINI_API_KEY and your internet connection, then try again. Technical detail: Gemini API returned HTTP 503: This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.",
+      "metadata": {
+        "kind": "llm_error"
+      },
+      "created_at": "2026-11-23T09:30:38+00:00"
+    },
+    {
+      "id": "msg_ScoOpAyNYllr",
+      "session_id": "sess_x1-dY6bAGguS",
+      "user_id": "customer-001",
+      "role": "assistant",
+      "content": "Hello! Describe the support issue you are experiencing, and I will look for a verified solution.",
+      "metadata": {
+        "kind": "greeting"
+      },
+      "created_at": "2026-11-23T09:43:44+00:00"
+    },
+    {
+      "id": "msg_bYfoR2WUEiNv",
+      "session_id": "sess_x1-dY6bAGguS",
+      "user_id": "customer-001",
+      "role": "user",
+      "content": "Hi, I am unable to log into my account",
+      "metadata": {
+        "kind": "customer_message"
+      },
+      "created_at": "2026-11-23T09:44:12+00:00"
+    },
+    {
+      "id": "msg_kYnM77qLV8Hg",
+      "session_id": "sess_x1-dY6bAGguS",
+      "user_id": "customer-001",
+      "role": "assistant",
+      "content": "I could not reach Gemini to diagnose this request. Please check the GEMINI_API_KEY and your internet connection, then try again. Technical detail: Gemini API returned HTTP 503: This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.",
+      "metadata": {
+        "kind": "llm_error"
+      },
+      "created_at": "2026-11-23T09:44:18+00:00"
+    },
+    {
+      "id": "msg_Zs_yDIf3lJc5",
+      "session_id": "sess_V585u4ckbjnB",
+      "user_id": "customer-001",
+      "role": "assistant",
+      "content": "Hello! Describe the support issue you are experiencing, and I will look for a verified solution.",
+      "metadata": {
+        "kind": "greeting"
+      },
+      "created_at": "2026-11-23T10:03:20+00:00"
+    }
+  ],
+  "solutions": [],
+  "llm_calls": [
+    {
+      "id": "llm_qMwAZRf872eD",
+      "session_id": "sess_284qmgw3HfV7",
+      "user_id": "customer-001",
+      "provider": "gemini",
+      "model": "gemini-3.8-flash",
+      "status": "error",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "latency_ms": 6621,
+      "error": "Gemini API returned HTTP 503: This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.",
+      "created_at": "2026-11-23T09:29:32+00:00"
+    },
+    {
+      "id": "llm_QN-GlF7Wtffp",
+      "session_id": "sess_284qmgw3HfV7",
+      "user_id": "customer-001",
+      "provider": "gemini",
+      "model": "gemini-3.8-flash",
+      "status": "error",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "latency_ms": 13370,
+      "error": "Gemini API returned HTTP 503: This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.",
+      "created_at": "2026-11-23T09:30:38+00:00"
+    },
+    {
+      "id": "llm_FqABnUfa19n1",
+      "session_id": "sess_x1-dY6bAGguS",
+      "user_id": "customer-001",
+      "provider": "gemini",
+      "model": "gemini-3.8-flash",
+      "status": "error",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "latency_ms": 6078,
+      "error": "Gemini API returned HTTP 503: This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.",
+      "created_at": "2026-11-23T09:44:18+00:00"
+    }
+  ],
+  "rate_events": [
+    {
+      "user_id": "customer-001",
+      "type": "message",
+      "timestamp": 1795426165.4570746
+    },
+    {
+      "user_id": "customer-001",
+      "type": "gemini_escalation",
+      "timestamp": 1795426165.4751987
+    },
+    {
+      "user_id": "customer-001",
+      "type": "message",
+      "timestamp": 1795426225.290768
+    },
+    {
+      "user_id": "customer-001",
+      "type": "gemini_escalation",
+      "timestamp": 1795426225.3120186
+    },
+    {
+      "user_id": "customer-001",
+      "type": "message",
+      "timestamp": 1795427052.4531927
+    },
+    {
+      "user_id": "customer-001",
+      "type": "gemini_escalation",
+      "timestamp": 1795427052.471651
+    }
+  ]
+}
