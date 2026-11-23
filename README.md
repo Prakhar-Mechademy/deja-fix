@@ -52,7 +52,9 @@ Déjà Fix is a FastAPI and SQLite support chatbot that serves only customer-con
 python -m uvicorn app.main:app --reload
 ```
 
-Open Swagger UI at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
+Open the web dashboard at [http://127.0.0.1:8000/dashboard](http://127.0.0.1:8000/dashboard). `/` also opens the dashboard.
+
+Open Swagger UI at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs). The dashboard provides live overview metrics, support chat, session browsing, knowledge-hub cards, and token usage charts without a separate frontend server.
 
 ## Run the demo
 
@@ -89,6 +91,8 @@ The demo uses `demo_dejafix.db`, starts and restarts the server, exercises the t
 | `POST` | `/sessions/{session_id}/end` | End and extract from a session |
 | `GET` | `/solutions` | Inspect generalized verified solutions |
 | `GET` | `/stats/tokens` | Inspect token usage and hub/escalation totals |
+| `GET` | `/dashboard` or `/` | Open the operations dashboard |
+| `GET` | `/api/dashboard/overview` | Return known user IDs for dashboard navigation |
 
 ## Testing behaviors
 
@@ -101,6 +105,7 @@ The demo uses `demo_dejafix.db`, starts and restarts the server, exercises the t
 - **Rate limits:** send more than `MSG_LIMIT_PER_MIN` messages and inspect the `429` response plus `Retry-After` header.
 - **Escalation limit:** exceed `ESC_LIMIT_PER_HOUR` escalation calls and inspect the escalation `429` response.
 - **Token stats:** inspect `/stats/tokens` after hub and escalated sessions for per-session and average totals.
+- **Dashboard:** open `/` or `/dashboard`; verify overview metrics, chat sessions, knowledge-hub cards, session statuses, and token totals update from SQLite/API data.
 
 ## Assumptions
 
@@ -124,6 +129,8 @@ app/
   chat.py
   extractor.py
   main.py
+  static/
+    dashboard.html
 scripts/
   smoke_test.py
   list_models.py
@@ -134,7 +141,10 @@ scripts/
 
 ```mermaid
 flowchart LR
-    Client[Caller or Swagger UI] --> Main[FastAPI app.main]
+    Client[Caller, Swagger UI, or Dashboard] --> Main[FastAPI app.main]
+
+    Dashboard[Static operations dashboard] --> Main
+    Main -->|GET /dashboard or /| Dashboard
 
     Main --> Users[POST /users]
     Main --> Sessions[POST /sessions]
@@ -219,6 +229,11 @@ flowchart LR
 
     Main --> TokenStats[Aggregate llm_calls for /stats/tokens]
     TokenStats --> DB
+
+    Dashboard --> DashboardOverview[GET /api/dashboard/overview]
+    Dashboard --> DashboardData[GET /solutions and /stats/tokens]
+    DashboardOverview --> DB
+    DashboardData --> DB
 ```
 
 The architecture keeps persisted state and transcripts in SQLite. `app/main.py` owns HTTP routing and startup, `app/chat.py` owns the per-message state machine, `app/retrieval.py` performs embedding search, `app/llm.py` is the only provider boundary, and `app/extractor.py` adds only customer-confirmed fixes to the hub.

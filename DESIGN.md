@@ -1,4 +1,3 @@
-
 ## Application overview
 
 ```mermaid
@@ -98,6 +97,7 @@ The architecture keeps persisted state and transcripts in SQLite. `app/main.py` 
 - `solution_sources` links one solution to many sessions and the exact confirming message, enabling merged fixes to carry provenance and a meaningful `use_count`.
 - Solutions contain only generalized symptoms, technical environment, fix steps, and failed attempts. Names, addresses, links, account identifiers, and order numbers are excluded, keeping customer identity outside the reusable hub.
 - Embeddings are float32 bytes in SQLite `BLOB` columns. This is simple, restart-safe, and supports dot-product cosine search without an ORM or vector database.
+- The dashboard is a dependency-free static HTML page served by FastAPI. It reads existing API data for overview metrics, sessions, solutions, chat transcripts, and token usage; it stores no separate browser or client state.
 
 # When the extractor runs and why
 
