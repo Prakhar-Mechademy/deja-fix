@@ -148,43 +148,77 @@ class OpenAIProvider:
 
 
 
+
 class GeminiProvider:
     """Google Gemini API provider using the generateContent REST endpoint."""
+
     name = "gemini"
     URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
     def __init__(self, settings: Settings):
         self.s = settings
-        self.client = httpx.Client(timeout=settings.llm_timeout)
 
-    def complete(self, purpose: str, system: str, messages: list[dict], max_tokens: int = 1024) -> LLMResult:
+        # Allow enough time for Gemini to generate a response.
+        self.client = httpx.Client(
+            timeout=httpx.Timeout(
+                connect=20.0,
+                read=max(float(settings.llm_timeout), 180.0),
+                write=30.0,
+                pool=20.0,
+            )
+        )
+
+    def complete(
+        self,
+        purpose: str,
+        system: str,
+        messages: list[dict],
+        max_tokens: int = 1024,
+    ) -> LLMResult:
+
         key = os.environ.get("GEMINI_API_KEY")
+
         if not key:
             raise LLMUnavailable("GEMINI_API_KEY is not set")
 
         model = self.s.gemini_model
 
-        # Gemini uses "user" and "model" roles; assistant maps to model.
         contents = []
+
         for message in messages:
-            role = "model" if message.get("role") == "assistant" else "user"
+            role = (
+                "model"
+                if message.get("role") == "assistant"
+                else "user"
+            )
+
             content = str(message.get("content", ""))
+
             if content.strip():
-                contents.append({"role": role, "parts": [{"text": content}]})
+                contents.append({
+                    "role": role,
+                    "parts": [{"text": content}],
+                })
 
         body = {
             "contents": contents,
-            "generationConfig": {"maxOutputTokens": max_tokens},
+            "generationConfig": {
+                "maxOutputTokens": max_tokens,
+            },
         }
 
         if system:
-            body["systemInstruction"] = {"parts": [{"text": system}]}
+            body["systemInstruction"] = {
+                "parts": [{"text": system}]
+            }
 
-        # Retry temporary rate-limit and service-unavailable errors.
-        r = None
+        # Retry temporary timeouts, rate limits and service errors.
+        response = None
+
         for attempt in range(3):
+
             try:
-                r = self.client.post(
+                response = self.client.post(
                     self.URL.format(model=model),
                     json=body,
                     headers={
@@ -192,32 +226,60 @@ class GeminiProvider:
                         "Content-Type": "application/json",
                     },
                 )
-            except Exception as e:  # noqa: BLE001
+
+            except httpx.ReadTimeout as e:
+
+                if attempt < 2:
+                    wait_seconds = 2 ** (attempt + 1)
+
+                    log.warning(
+                        "Gemini read timeout during '%s'. "
+                        "Retrying in %s seconds (attempt %s/3).",
+                        purpose,
+                        wait_seconds,
+                        attempt + 1,
+                    )
+
+                    time.sleep(wait_seconds)
+                    continue
+
                 raise _http_error(e) from e
 
-            if r.status_code in (429, 503) and attempt < 2:
+            except Exception as e:
+                raise _http_error(e) from e
+
+            if response.status_code in (429, 503) and attempt < 2:
                 wait_seconds = 2 ** (attempt + 1)
+
                 log.warning(
-                    "Gemini returned HTTP %s. Retrying in %s seconds (attempt %s/3).",
-                    r.status_code,
+                    "Gemini returned HTTP %s. "
+                    "Retrying in %s seconds (attempt %s/3).",
+                    response.status_code,
                     wait_seconds,
                     attempt + 1,
                 )
+
                 time.sleep(wait_seconds)
                 continue
 
             break
 
-        _check_status(r)
+        _check_status(response)
 
         try:
-            data = r.json()
+            data = response.json()
+
             candidates = data.get("candidates", [])
 
             if not candidates:
-                raise LLMMalformed("Gemini returned no candidates")
+                raise LLMMalformed(
+                    "Gemini returned no candidates"
+                )
 
-            parts = candidates[0].get("content", {}).get("parts", [])
+            parts = candidates[0].get(
+                "content", {}
+            ).get("parts", [])
+
             text = "".join(
                 part.get("text", "")
                 for part in parts
@@ -227,7 +289,9 @@ class GeminiProvider:
             usage = data.get("usageMetadata", {})
 
             if not text.strip():
-                raise LLMMalformed("Gemini returned an empty response")
+                raise LLMMalformed(
+                    "Gemini returned an empty response"
+                )
 
             return LLMResult(
                 text,
@@ -238,8 +302,18 @@ class GeminiProvider:
 
         except LLMMalformed:
             raise
-        except (ValueError, KeyError, TypeError, AttributeError, IndexError) as e:
-            raise LLMMalformed(f"bad Gemini payload: {e}") from e
+
+        except (
+            ValueError,
+            KeyError,
+            TypeError,
+            AttributeError,
+            IndexError,
+        ) as e:
+            raise LLMMalformed(
+                f"bad Gemini payload: {e}"
+            ) from e
+
 
 
 
