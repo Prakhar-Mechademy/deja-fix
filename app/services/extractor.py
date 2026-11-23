@@ -11,6 +11,7 @@ from app.schemas.solutions import ExtractedSolution, ExtractedSolutionSet
 from app.services.confirmation import find_confirmation_message
 from app.services.embedding import deserialize_embedding, serialize_embedding
 from app.services.gemini import generate_response
+from app.services.generalisation import generalise_extracted_solution
 from app.services.retrieval import cosine_similarity, embed_text
 from app.utils.pii import redact_pii, sanitise_string_list
 
@@ -150,15 +151,16 @@ async def extract_solutions(db: Session, session_id: str, use_gemini: bool = Tru
     saved = []
 
     for item in extracted.solutions:
-        problem = redact_pii(item.problem).strip()
-        fix_steps = sanitise_string_list(item.fix_steps)
+        canonical = generalise_extracted_solution(item, confirmed=True)
 
-        if not problem or not fix_steps:
+        if not canonical["quality_valid"]:
             continue
 
-        symptoms = sanitise_string_list(item.symptoms)
-        failed_attempts = sanitise_string_list(item.failed_attempts)
-        incoming_vector = embed_text(problem)
+        problem = canonical["problem_description"]
+        fix_steps = canonical["fix_steps"]
+        symptoms = canonical["symptoms"]
+        failed_attempts = canonical["failed_attempts"]
+        incoming_vector = deserialize_embedding(canonical["embedding"])
 
         duplicate = None
         for candidate in db.query(Solution).filter(Solution.status == "VERIFIED").all():
@@ -170,7 +172,26 @@ async def extract_solutions(db: Session, session_id: str, use_gemini: bool = Tru
             except (TypeError, ValueError, json.JSONDecodeError):
                 continue
 
-            if candidate_vector.size == incoming_vector.size:
+            technical_match = True
+            technical_pairs = (
+                (candidate.operating_system, canonical["operating_system"]),
+                (candidate.device, canonical["device"]),
+                (candidate.application_name, canonical["application_name"]),
+                (candidate.app_version, canonical["app_version"]),
+            )
+
+            for existing_value, incoming_value in technical_pairs:
+                if existing_value and incoming_value:
+                    if str(existing_value).lower() != str(incoming_value).lower():
+                        technical_match = False
+                        break
+
+            existing_codes = set(candidate.error_codes or [])
+            incoming_codes = set(canonical["error_codes"])
+            if existing_codes and incoming_codes and not existing_codes.intersection(incoming_codes):
+                technical_match = False
+
+            if candidate_vector.size == incoming_vector.size and technical_match:
                 if cosine_similarity(incoming_vector, candidate_vector) >= 0.78:
                     duplicate = candidate
                     break
@@ -180,20 +201,26 @@ async def extract_solutions(db: Session, session_id: str, use_gemini: bool = Tru
             solution.symptoms = sanitise_string_list((solution.symptoms or []) + symptoms)
             solution.fix_steps = sanitise_string_list((solution.fix_steps or []) + fix_steps)
             solution.failed_attempts = sanitise_string_list((solution.failed_attempts or []) + failed_attempts)
-            solution.device = _merge_text(solution.device, redact_pii(item.device) if item.device else None)
-            solution.operating_system = _merge_text(solution.operating_system, redact_pii(item.operating_system) if item.operating_system else None)
-            solution.app_version = _merge_text(solution.app_version, redact_pii(item.app_version) if item.app_version else None)
+            solution.device = _merge_text(solution.device, canonical["device"])
+            solution.operating_system = _merge_text(solution.operating_system, canonical["operating_system"])
+            solution.application_name = _merge_text(solution.application_name, canonical["application_name"])
+            solution.app_version = _merge_text(solution.app_version, canonical["app_version"])
+            solution.error_codes = sanitise_string_list((solution.error_codes or []) + canonical["error_codes"])
             solution.embedding = serialize_embedding(incoming_vector)
             solution.embedding_model = settings.EMBEDDING_MODEL
         else:
             solution = Solution(
                 problem=problem,
+                canonical_title=canonical["canonical_title"],
+                problem_description=canonical["problem_description"],
                 symptoms=symptoms,
-                device=redact_pii(item.device) if item.device else None,
-                operating_system=redact_pii(item.operating_system) if item.operating_system else None,
-                app_version=redact_pii(item.app_version) if item.app_version else None,
+                device=canonical["device"],
+                operating_system=canonical["operating_system"],
+                application_name=canonical["application_name"],
+                app_version=canonical["app_version"],
                 fix_steps=fix_steps,
                 failed_attempts=failed_attempts,
+                error_codes=canonical["error_codes"],
                 embedding=serialize_embedding(incoming_vector),
                 embedding_model=settings.EMBEDDING_MODEL,
                 status="VERIFIED",

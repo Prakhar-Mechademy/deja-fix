@@ -8,7 +8,9 @@ class ExtractedSolution(BaseModel):
     symptoms: list[str] = Field(default_factory=list)
     device: str | None = None
     operating_system: str | None = None
+    application_name: str | None = None
     app_version: str | None = None
+    error_codes: list[str] = Field(default_factory=list)
     fix_steps: list[str] = Field(default_factory=list)
     failed_attempts: list[str] = Field(default_factory=list)
 
