@@ -1,0 +1,6 @@
+# Déjà Fix — System Design
+- **Data Model (`dejafix.db`):** SQLite tables `users`, `sessions`, `messages`, `solutions`, `token_logs`, and `rate_limits` persist state across restarts and link every solution to its source `session_id`.
+- **When Extractor Runs & Why:** Runs immediately upon customer confirmation, reading the transcript directly from the SQLite `messages` table so verified fixes are stripped of PII and saved durably before the user disconnects.
+- **How Reworded Problems Match & Why:** Two-stage lookup: cosine similarity on `gemini-embedding-001` vectors (`>= 0.65`) followed by a `gemini-2.5-flash` fault-equivalence check that rejects shared-keyword false positives and asks a clarifying question when device/OS details are missing.
+- **How Confirmation Is Detected:** An intent classifier evaluates the customer's reply against the prior fix message to separate `"confirmed"`, `"rejected"` (never saved), and `"other"`.
+- **Next With a Week:** Admin review UI for retiring outdated fixes, hybrid BM25 + vector indexing (`sqlite-vec`), and automated pytest regression tests.
