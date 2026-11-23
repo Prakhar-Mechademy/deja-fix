@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deja Fix support</title>
+<style>
+  body{font-family:system-ui,Arial,sans-serif;max-width:760px;margin:24px auto;padding:0 12px;color:#1d2433}
+  h1{font-size:20px;margin:0 0 12px} .row{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+  input,button{font:inherit;padding:8px 10px;border:1px solid #c8cdd8;border-radius:8px}
+  button{background:#1f5eff;color:#fff;border:none;cursor:pointer} button.alt{background:#5b6475}
+  #log{border:1px solid #e1e4ea;border-radius:10px;height:430px;overflow:auto;padding:12px;background:#fafbfc}
+  .m{margin:8px 0;padding:8px 11px;border-radius:10px;white-space:pre-wrap;max-width:85%}
+  .customer{background:#1f5eff;color:#fff;margin-left:auto} .assistant{background:#fff;border:1px solid #e1e4ea}
+  .tag{font-size:11px;color:#6b7385;margin-top:2px} #msg{flex:1} .err{color:#b42318}
+</style>
+</head>
+<body>
+<h1>Deja Fix support assistant</h1>
+<div class="row">
+  <input id="uid" placeholder="customer id (e.g. customer-a)">
+  <input id="name" placeholder="name (optional)">
+  <button onclick="start()">Start session</button>
+  <button class="alt" onclick="endSession()">End session</button>
+</div>
+<div id="log"></div>
+<div class="row" style="margin-top:10px">
+  <input id="msg" placeholder="Describe your problem..." onkeydown="if(event.key==='Enter')send()">
+  <button onclick="send()">Send</button>
+</div>
+<div id="status" class="tag"></div>
+<script>
+let session = null;
+const $ = id => document.getElementById(id);
+function add(role, text, tag){
+  const d = document.createElement('div'); d.className = 'm ' + role; d.textContent = text;
+  if (tag){ const t = document.createElement('div'); t.className = 'tag'; t.textContent = tag; d.appendChild(t); }
+  $('log').appendChild(d); $('log').scrollTop = 1e9;
+}
+async function call(url, body){
+  const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body||{})});
+  const j = await r.json().catch(() => ({message:'Bad response from server'}));
+  return {status: r.status, body: j};
+}
+async function start(){
+  const uid = $('uid').value.trim(); if(!uid){ $('status').textContent = 'Enter a customer id first.'; return; }
+  $('log').innerHTML = '';
+  const r = await call('/sessions', {user_id: uid, name: $('name').value.trim() || null});
+  session = r.body.session_id; add('assistant', r.body.greeting, 'session ' + session);
+}
+async function send(){
+  const text = $('msg').value.trim(); if(!text || !session) return;
+  $('msg').value = ''; add('customer', text);
+  const r = await call('/sessions/' + session + '/messages', {user_id: $('uid').value.trim(), text});
+  if (r.status !== 200){ add('assistant', r.body.message || 'Error', 'HTTP ' + r.status); return; }
+  add('assistant', r.body.reply, 'source: ' + r.body.source + (r.body.solution_id ? ' | solution #' + r.body.solution_id : ''));
+}
+async function endSession(){
+  if(!session) return;
+  const r = await call('/sessions/' + session + '/end?user_id=' + encodeURIComponent($('uid').value.trim()));
+  $('status').textContent = 'Session ended. Extraction: ' + JSON.stringify(r.body.extraction);
+  session = null;
+}
+</script>
+</body>
+</html>
