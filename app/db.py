@@ -182,6 +182,28 @@ def add_message(
         return cur.lastrowid
 
 
+def delete_message(message_id: int) -> None:
+    """Remove one message (used to roll back a customer message whose reply was rate-limited)."""
+    with get_conn() as conn:
+        conn.execute("DELETE FROM messages WHERE id = ?", (message_id,))
+
+
+def idle_active_sessions(idle_minutes: int) -> list[str]:
+    """Ids of active sessions whose last message (or start, if empty) is older than idle_minutes."""
+    cutoff = (
+        (datetime.now(timezone.utc) - timedelta(minutes=idle_minutes))
+        .isoformat(timespec="milliseconds")
+        .replace("+00:00", "Z")
+    )
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT s.id FROM sessions s WHERE s.status = 'active' AND "
+            "COALESCE((SELECT MAX(m.created_at) FROM messages m WHERE m.session_id = s.id), s.started_at) < ?",
+            (cutoff,),
+        ).fetchall()
+        return [r["id"] for r in rows]
+
+
 def get_messages(session_id: str, user_id: Optional[str] = None) -> list[dict]:
     """Full session transcript in order. Pass user_id to enforce ownership."""
     with get_conn() as conn:

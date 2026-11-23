@@ -38,3 +38,8 @@ BORDERLINE_THRESHOLD = _float("BORDERLINE_THRESHOLD", 0.65)  # between: verify w
 # --- Rate limits (per user) --------------------------------------------------
 MESSAGES_PER_MINUTE = _int("MESSAGES_PER_MINUTE", 20)
 ESCALATIONS_PER_HOUR = _int("ESCALATIONS_PER_HOUR", 5)
+
+# --- Sessions -----------------------------------------------------------------
+# Active sessions with no message for this long are closed and sent to the extractor,
+# so a customer who confirms a fix and walks away is still learned from. 0 disables it.
+IDLE_CLOSE_MINUTES = _int("IDLE_CLOSE_MINUTES", 30)

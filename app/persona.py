@@ -90,8 +90,19 @@ _RESOLUTION_PATTERNS = [
 _RESOLUTION_RE = re.compile("|".join(_RESOLUTION_PATTERNS), re.I)
 
 
+# A confirmation that also raises something else ("that fixed it, but now my printer...")
+# or says the fix did not last must NOT end the conversation: it goes through the normal flow.
+_CONTRAST_RE = re.compile(
+    r"\b(?:but|however|although|though|except)\b"
+    r"|\bfor (?:a|a few|few) (?:minutes?|mins?|seconds?|while|bit|hours?|days?)\b"
+    r"|\b(?:came|comes) back\b|\b(?:broke|stopped|failed|happened) again\b",
+    re.I,
+)
+
+
 def _is_resolution_confirmation(text: str) -> bool:
-    return bool(_RESOLUTION_RE.search(text or ""))
+    t = text or ""
+    return bool(_RESOLUTION_RE.search(t)) and not _CONTRAST_RE.search(t)
 
 
 # --------------------------------------------------------------------------- #
@@ -227,7 +238,7 @@ def handle_message(
     """
 
     # Store the customer's message.
-    db.add_message(session_id, user_id, "user", text)
+    user_msg_id = db.add_message(session_id, user_id, "user", text)
 
     # Retrieve the complete conversation.
     history = db.get_messages(session_id)
@@ -351,7 +362,12 @@ def handle_message(
     # ----------------------------------------------------------------------- #
 
     if before_escalation is not None:
-        before_escalation()
+        try:
+            before_escalation()
+        except Exception:
+            # Rate-limited (429): don't leave an unanswered customer message in the transcript.
+            db.delete_message(user_msg_id)
+            raise
 
     try:
 

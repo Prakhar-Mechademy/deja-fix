@@ -115,10 +115,32 @@ def _format_transcript(messages: list[dict]) -> str:
     return "\n".join(f"{label.get(m['role'], m['role'])}: {m['content']}" for m in messages)
 
 
-def _known_names(user_id: str) -> tuple[str, ...]:
+_NAME_INTRO = re.compile(
+    r"(?i:my name is|my name's|i am|i['’]m|this is|name:)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)"
+)
+_EMAIL_NAME = re.compile(r"\b([A-Za-z]{3,})[._-]([A-Za-z]{3,})@")
+_NOT_NAMES = {
+    "having", "trying", "using", "getting", "sorry", "not", "unable", "still", "just", "back",
+    "on", "in", "at", "with", "running", "stuck", "sure", "also", "now", "here", "there",
+}
+
+
+def _names_from_text(texts) -> list[str]:
+    """Fallback anonymisation: names the customer introduced themselves with, or put in an email."""
+    found: list[str] = []
+    for t in texts:
+        for m in _NAME_INTRO.finditer(t or ""):
+            found.extend(w for w in m.group(1).split() if w.lower() not in _NOT_NAMES)
+        for m in _EMAIL_NAME.finditer(t or ""):
+            found.extend(m.groups())
+    return list(dict.fromkeys(found))
+
+
+def _known_names(user_id: str, texts=()) -> tuple[str, ...]:
     with db.get_conn() as conn:
         row = conn.execute("SELECT display_name FROM users WHERE id = ?", (user_id,)).fetchone()
-    return (row["display_name"],) if row and row["display_name"] else ()
+    names = [row["display_name"]] if row and row["display_name"] else []
+    return tuple(names + _names_from_text(texts))
 
 
 def _already_linked(solution_id: int, session_id: str) -> bool:
@@ -272,7 +294,8 @@ def extract_session(session_id: str, force: bool = False) -> dict:
 
     user_id = session["user_id"]
     messages = db.get_messages(session_id)  # always read from the store
-    user_msgs = [_norm(m["content"]) for m in messages if m["role"] == "user"]
+    raw_user_msgs = [m["content"] for m in messages if m["role"] == "user"]
+    user_msgs = [_norm(t) for t in raw_user_msgs]
     served_from = session["served_from"]
 
     if user_msgs and served_from in ("hub", "escalation"):
@@ -281,7 +304,7 @@ def extract_session(session_id: str, force: bool = False) -> dict:
             if served_from == "hub":
                 _extract_hub_session(session_id, user_id, transcript, user_msgs, result)
             else:
-                _extract_full(session_id, user_id, transcript, user_msgs, _known_names(user_id), result)
+                _extract_full(session_id, user_id, transcript, user_msgs, _known_names(user_id, raw_user_msgs), result)
         except llm.LLMError as e:
             result["error"] = e.kind
             return result  # not marked extracted: can be retried

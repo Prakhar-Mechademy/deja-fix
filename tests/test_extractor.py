@@ -25,8 +25,9 @@ def fake_generate_json(messages, **kw):
     return answer
 
 
-llm.embed = lambda text, **kw: [1.0, 0.0, 0.0]
-llm.generate_json = fake_generate_json
+def install_fakes():
+    llm.embed = lambda text, **kw: [1.0, 0.0, 0.0]
+    llm.generate_json = fake_generate_json
 
 
 def make_session(user, served_from, turns, close=True):
@@ -57,6 +58,7 @@ def test_scrub():
 
 
 def test_all():
+    install_fakes()
     db.init_db()
     test_scrub()
 
@@ -189,6 +191,15 @@ def test_all():
     assert db.get_session(s10)["extracted_at"]
 
     print("All extractor checks passed.")
+
+
+def test_name_fallback():
+    db.init_db()
+    names = extractor._known_names(
+        "nobody", ["Hi, I'm Priya Sharma and my app fails", "mail me at rahul.verma@example.com"])
+    assert {"Priya", "Sharma", "rahul", "verma"} <= set(names)
+    out = extractor.scrub("Priya Sharma and Rahul Verma reported that sync fails", names)
+    assert "Priya" not in out and "Sharma" not in out and "Rahul" not in out and "Verma" not in out
 
 
 if __name__ == "__main__":

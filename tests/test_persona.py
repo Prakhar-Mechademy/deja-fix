@@ -41,9 +41,10 @@ def fake_generate(messages, **kw):
     return state["escalation"]
 
 
-llm.embed = fake_embed
-llm.generate_json = fake_generate_json
-llm.generate = fake_generate
+def install_fakes():
+    llm.embed = fake_embed
+    llm.generate_json = fake_generate_json
+    llm.generate = fake_generate
 
 
 def say(sid, user, text):
@@ -55,6 +56,7 @@ def total_llm_calls():
 
 
 def test_all():
+    install_fakes()
     db.init_db()
     for u, name in (("alice", "Alice"), ("bob", "Bob"), ("carol", "Carol")):
         db.get_or_create_user(u, name)
@@ -178,6 +180,15 @@ def test_all():
     assert persona.greeting_for_user("newbie", current_session_id=db.create_session("newbie")) is None
 
     print("All persona checks passed.")
+
+
+def test_confirmation_edge_cases():
+    f = persona._is_resolution_confirmation
+    assert f("That fixed it, thank you! Sync is working again.")
+    assert f("my phone is back to normal")
+    assert not f("That fixed it, but now my printer is broken")
+    assert not f("That fixed it for a minute but it came back")
+    assert not f("That didn't work")
 
 
 if __name__ == "__main__":

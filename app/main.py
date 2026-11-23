@@ -7,26 +7,59 @@ from __future__ import annotations
 
 
 
+import asyncio
 from contextlib import asynccontextmanager
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from app import db, extractor, persona, rate_limit
+from app import config, db, extractor, persona, rate_limit
+
+
+def _close_idle() -> list[dict]:
+    """Close sessions idle for IDLE_CLOSE_MINUTES and extract them. Returns the extraction results."""
+    if config.IDLE_CLOSE_MINUTES == 0:
+        return []
+    out = []
+    for sid in db.idle_active_sessions(config.IDLE_CLOSE_MINUTES):
+        db.close_session(sid)
+        out.append(extractor.extract_session(sid))
+    return out
+
+
+async def _idle_closer():
+    while True:
+        await asyncio.sleep(60)
+        try:
+            await asyncio.to_thread(_close_idle)
+        except Exception:  # never let the background loop die
+            pass
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init_db()  # creates tables if missing; existing data is untouched (restart-safe)
-    yield
+    task = asyncio.create_task(_idle_closer())
+    try:
+        yield
+    finally:
+        task.cancel()
 
 
 app = FastAPI(title="Déjà Fix", lifespan=lifespan)
+
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+
+@app.get("/", include_in_schema=False)
+def chat_page():
+    """The chat web page."""
+    return FileResponse(STATIC_DIR / "index.html")
 
 
 # --------------------------------------------------------------------------- #
@@ -147,6 +180,12 @@ def close_session(session_id: str, body: SessionIn):
 def extract_pending():
     """Retry extraction for closed sessions that failed earlier (e.g. provider outage)."""
     return extractor.extract_pending()
+
+
+@app.post("/admin/close-idle")
+def close_idle():
+    """Close idle sessions now and extract them (also runs automatically every minute)."""
+    return _close_idle()
 
 
 @app.get("/solutions")

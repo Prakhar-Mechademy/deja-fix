@@ -28,12 +28,14 @@ def fake_generate_json(messages, **kw):
     return {"same_fault": False, "reason": "n/a"}
 
 
-llm.embed = lambda text, **kw: [1.0, 0.0, 0.0]
-llm.generate_json = fake_generate_json
-llm.generate = lambda messages, **kw: "Try signing out and back in."
+def install_fakes():
+    llm.embed = lambda text, **kw: [1.0, 0.0, 0.0]
+    llm.generate_json = fake_generate_json
+    llm.generate = lambda messages, **kw: "Try signing out and back in."
 
 
 def test_all():
+    install_fakes()
     config.MESSAGES_PER_MINUTE = 5
     config.ESCALATIONS_PER_HOUR = 1
 
@@ -71,6 +73,8 @@ def test_all():
             "user_id": "u1", "text": "My printer keeps going offline every few minutes at home"})
         assert r.status_code == 429 and r.json()["kind"] == "escalation" and "Retry-After" in r.headers
         assert "try again" in r.json()["message"].lower()
+        # the rate-limited message is rolled back: no unanswered customer message left behind
+        assert client.get(f"/sessions/{s2}", params={"user_id": "u1"}).json()["messages"] == []
 
         # --- message limit (5/min): costless declined messages until the 429 ---
         s3 = client.post("/sessions", json={"user_id": "u3"}).json()["session_id"]
@@ -93,6 +97,15 @@ def test_all():
         s5 = client.post("/sessions", json={"user_id": "u1"}).json()
         assert s5["greeting"] and "app sync failure" in s5["greeting"].lower()
         assert client.post("/sessions", json={"user_id": "u4"}).json()["greeting"] is None
+
+    # --- idle sessions are closed and extracted automatically (after the restart checks) ---
+    with TestClient(app) as client:
+        sidle = client.post("/sessions", json={"user_id": "u5"}).json()["session_id"]
+        config.IDLE_CLOSE_MINUTES = -1  # everything counts as idle
+        closed = client.post("/admin/close-idle").json()
+        assert any(c["session_id"] == sidle for c in closed)
+        assert db.get_session(sidle)["status"] == "closed"
+        config.IDLE_CLOSE_MINUTES = 30
 
     print("All API checks passed.")
 
