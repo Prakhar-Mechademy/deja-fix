@@ -1,58 +1,57 @@
 # Déjà Fix
 
-Déjà Fix is a support-chat backend that reuses customer-confirmed fixes. SQLite persists users, sessions, messages, verified solutions, solution provenance, rate-limit events, and per-session model token usage.
+Déjà Fix is a terminal, LLM-based toaster-support assistant. It saves full chat transcripts and only adds fixes to its SQLite knowledge base after the customer confirms the fix worked. I am assuming that 5 known model types of the toaster are there and any new ones
+are logged as well. 
+## First run
 
-## Run in five minutes
+Use Python 3.10+ from this project directory:
 
-1. Use Python 3.10+ and install the dependencies:
+```sh
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -r requirements.txt
+```
 
-	```sh
-	python3 -m venv .venv
-	. .venv/bin/activate
-	python -m pip install -r requirements.txt
-	```
+Configure Gemini using the existing local `api_key.env` (`gemini_key=...`) or the `GEMINI_API_KEY` environment variable. The defaults are `gemini-2.5-flash` for chat and `gemini-embedding-001` for embeddings. Keys are read at runtime and must not be committed.
 
-2. Configure a Gemini key in the existing local `api_key.env` as `gemini_key=...`, or use the environment variable `GEMINI_API_KEY`. The app uses the Gemini `gemini-embedding-001` embedding model and `gemini-2.5-flash` chat model by default. Override with `GEMINI_EMBEDDING_MODEL` or `GEMINI_MODEL` if needed. OpenAI-compatible `OPENAI_API_KEY` configuration is also supported.
+Start the chat:
 
-	```ini
-	gemini_key=your-key
-	# Optional overrides:
-	# GEMINI_MODEL=gemini-2.5-flash
-	# GEMINI_EMBEDDING_MODEL=gemini-embedding-001
-	```
+```sh
+python3 scenario.py
+```
 
-	API keys are read at runtime and must never be pasted into source code or committed. Without a key, a local hashed-feature vectorizer demonstrates retrieval, while escalation and extraction return a clear unavailable response; no fake solution is saved.
+Enter a stable customer ID. If the ID has previous sessions, choose one to resume or choose `N` to start a new session. The assistant asks for the toaster model, verifies it against the five starter model names, and requests confirmation before adding a new model to the catalog. A fix is saved only after an explicit customer confirmation. The terminal prints the session's input/output token totals when you exit.
 
-3. Start an interactive terminal chat using the persistent SQLite database:
+In chat, `/history` shows the transcript, `/sessions` lists sessions for that customer, `/solutions` displays fixes for the selected toaster model, `/model` starts a new session for another model, and `/quit` exits.
 
-	```sh
-	python3 scenario.py
-	```
+## Database
 
-	Enter a stable customer ID. Chat in the terminal; use `/history`, `/sessions`, and `/solutions` to inspect stored records. Type `/quit` to end. Confirm a fix explicitly in chat (for example, “That fixed it”) before it is saved.
+The default SQLite file is `deja_fix.sqlite3` in the project directory. Set `DATABASE_PATH` to use another location. A fresh database contains **no users, sessions, messages, solutions, or token logs**. It contains only the five starter toaster-model catalog rows; the solution knowledge base starts empty. Existing chat data persists across normal restarts.
 
-4. Inspect the complete database—including every stored message and the separate verified-solution fields—from the terminal:
+Inspect all records:
 
-	```sh
-	python3 scenario.py --inspect
-	```
+```sh
+python3 scenario.py --inspect
+```
 
-	To inspect only one customer's sessions, full messages, and linked verified fixes, run:
+Inspect one customer, including complete messages and their verified fixes:
 
-	```sh
-	python3 scenario.py --inspect --user-id "customer-a"
-	```
+```sh
+python3 scenario.py --inspect --user-id "customer-a"
+```
 
-	For the optional HTTP API, run `uvicorn agent:app --reload` and open `http://127.0.0.1:8000/docs`.
+Each LLM/embedding call is logged in `llm_calls` with its session, model, input/output tokens, and outcome. Verified solutions store separate `original_problem`, `solution`, `symptoms`, `fixes_that_did_not_work`, and `toaster_model_id` fields. Suggested fixes display the confirming user's ID and source session ID.
 
-The terminal and API use a local `deja_fix.sqlite3` database by default. Set `DATABASE_PATH` to change it. Restarting the process does not clear it. A verified row has distinct `original_problem`, `solution`, `symptoms`, `fixes_that_did_not_work`, and `environment` columns; complete raw messages are in the `messages` table. The assistant is configured for short, plain-language toaster troubleshooting, with basic electrical safety guidance.
+## Test
 
-## Demo
+Run the deterministic checks in an isolated temporary database:
 
-Run `python3 scenario.py --self-test` to execute the three-session story plus negative-match and unconfirmed-fix checks. It uses a fresh temporary database and deterministic fake provider; it makes no external API calls and does not use a real API key.
+```sh
+python3 scenario.py --self-test
+```
 
-## Retrieval and safety notes
+The test covers the empty knowledge base, model-specific retrieval, dynamic model confirmation, PII removal, and confirmed-only saves. It does not call an external model.
 
-With a configured provider, the system stores provider embeddings and ranks verified solutions by cosine similarity, using a conservative threshold and a score-gap check. Otherwise, a small local hashed-feature vector is used for offline development; configure real embeddings and tune `RETRIEVAL_THRESHOLD` on representative, labeled support examples before production. A candidate is confirmed by the customer before its fix is shown. A missing, weak, or ambiguous match escalates with the stored transcript.
+## Notes
 
-The backend never runs generated commands. Escalated responses may suggest safe, read-only diagnostics for the user to review and run. API keys are loaded from environment files; never commit them. The sample API accepts a `user_id` directly and is intended for a local demo: a deployed service must authenticate users and authorize every session endpoint, use TLS, and add retention/privacy controls.
+The initial model labels (`Toaster Model 1` through `Toaster Model 5`) are placeholders and can be replaced in `INITIAL_TOASTER_MODELS` in [agent.py](agent.py). When a configured LLM is unavailable, the assistant reports the problem rather than inventing or saving a fix. Toaster troubleshooting includes electrical safety guidance; the assistant does not execute commands.
