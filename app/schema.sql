@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS messages (
     role       TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
     content    TEXT NOT NULL,
     -- where an assistant message came from: persona (hub answer / clarifier) or raw LLM
-    source     TEXT CHECK (source IN ('hub', 'persona', 'llm') OR source IS NULL),
+    source     TEXT CHECK (source IN ('hub', 'persona', 'persona_clarify', 'llm') OR source IS NULL),
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, id);
