@@ -1,5 +1,5 @@
 # deja-fix
-# DejaFix – An AI-Powered Customer Support Knowledge Reuse System
+
 
 ### Problem Statement
 Customer support teams frequently encounter repeated problems. However, solutions to previously resolved issues are often buried in old conversations, resulting in repetitive work, longer resolution times, and inefficient knowledge management.
