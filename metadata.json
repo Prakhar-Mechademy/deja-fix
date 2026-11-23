@@ -1,0 +1,6 @@
+{
+  "name": "Déjà Fix",
+  "description": "Retrieval-grounded cloud sync support chatbot that learns from customer-confirmed escalations, generalizes fixes without PII, and reuses verified solutions at lower token cost.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
