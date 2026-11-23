@@ -268,7 +268,7 @@ def test_uncertain_match_asks_clarification_and_retrieves_again(api_database, mo
         })
 
     assert first.json()["source"] == "clarification"
-    assert "confirm" in first.json()["reply"].lower()
+    assert "?" in first.json()["reply"]
     assert second.status_code == 201
     assert len(retrieval_calls) == 2
 
@@ -484,5 +484,36 @@ def test_per_user_escalation_limit_returns_429(api_database, monkeypatch):
             assert first.status_code == 201
             assert second.status_code == 429
             assert "escalation limit" in second.json()["detail"].lower()
+    finally:
+        settings.RATE_LIMIT_ESCALATIONS = original_escalations
+
+
+def test_failed_gemini_call_still_counts_against_escalation_limit(api_database, monkeypatch):
+    import app.api.chat as chat_api
+
+    original_escalations = settings.RATE_LIMIT_ESCALATIONS
+
+    monkeypatch.setattr(chat_api, "retrieve_solutions", lambda db, problem: [])
+    monkeypatch.setattr(chat_api, "get_retrieval_decision", lambda results: "low")
+
+    async def timeout_escalation(db, session_id, history):
+        raise TimeoutError("Gemini timed out")
+
+    monkeypatch.setattr(chat_api, "escalate_to_gemini", timeout_escalation)
+
+    try:
+        settings.RATE_LIMIT_ESCALATIONS = 1
+
+        with TestClient(app, raise_server_exceptions=False) as client:
+            user = client.post("/users", json={"external_id": "timeout-limit-user"}).json()
+            session = client.post("/sessions", json={"user_id": user["id"]}).json()
+
+            first = client.post("/chat/message", json={"session_id": session["id"], "user_id": user["id"], "role": "user", "content": "Problem one"})
+            second = client.post("/chat/message", json={"session_id": session["id"], "user_id": user["id"], "role": "user", "content": "Problem two"})
+
+            assert first.status_code == 201
+            assert first.json()["source"] == "error"
+            assert "couldn't reach our support engine" in first.json()["reply"]
+            assert second.status_code == 429
     finally:
         settings.RATE_LIMIT_ESCALATIONS = original_escalations

@@ -16,6 +16,7 @@ class Settings(BaseSettings):
 
     RATE_LIMIT_MESSAGES: int = 30
     RATE_LIMIT_ESCALATIONS: int = 5
+    ESCALATION_WINDOW_SECONDS: int = 3600
 
     model_config = SettingsConfigDict(
         env_file=".env",

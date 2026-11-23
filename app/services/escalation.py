@@ -28,15 +28,33 @@ async def escalate_to_gemini(
         system_instruction=ESCALATION_SYSTEM_INSTRUCTION,
     )
 
-    usage = LLMUsage(
-        session_id=session_id,
-        model=settings.GEMINI_MODEL,
-        purpose="escalation",
-        input_tokens=result["input_tokens"],
-        output_tokens=result["output_tokens"],
-        total_tokens=result["total_tokens"],
+    usage = (
+        db.query(LLMUsage)
+        .filter(
+            LLMUsage.session_id == session_id,
+            LLMUsage.purpose == "escalation",
+            LLMUsage.total_tokens == 0,
+        )
+        .order_by(LLMUsage.created_at.desc())
+        .first()
     )
-    db.add(usage)
+
+    if usage:
+        usage.model = settings.GEMINI_MODEL
+        usage.input_tokens = result["input_tokens"]
+        usage.output_tokens = result["output_tokens"]
+        usage.total_tokens = result["total_tokens"]
+    else:
+        usage = LLMUsage(
+            session_id=session_id,
+            model=settings.GEMINI_MODEL,
+            purpose="escalation",
+            input_tokens=result["input_tokens"],
+            output_tokens=result["output_tokens"],
+            total_tokens=result["total_tokens"],
+        )
+        db.add(usage)
+
     db.commit()
 
     return result

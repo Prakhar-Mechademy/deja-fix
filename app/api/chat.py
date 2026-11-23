@@ -1,6 +1,7 @@
 """Chat API routes."""
 
 import re
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session as DBSession
@@ -31,21 +32,60 @@ def count_user_messages(db: DBSession, user_id: str) -> int:
     )
 
 
-def count_user_escalations(db: DBSession, user_id: str) -> int:
-    return (
+def record_escalation_attempt(db: DBSession, session_id: str) -> None:
+    """Record an attempt before Gemini so failed calls still count toward the limit."""
+    db.add(LLMUsage(
+        session_id=session_id,
+        model="gemini",
+        purpose="escalation_attempt",
+        input_tokens=0,
+        output_tokens=0,
+        total_tokens=0,
+    ))
+    db.commit()
+
+
+def count_user_escalations(db: DBSession, user_id: str) -> tuple[int, int]:
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=settings.ESCALATION_WINDOW_SECONDS)).replace(tzinfo=None)
+
+    rows = (
         db.query(LLMUsage)
         .join(SupportSession, LLMUsage.session_id == SupportSession.id)
-        .filter(SupportSession.user_id == user_id, LLMUsage.purpose == "escalation")
-        .count()
+        .filter(
+            SupportSession.user_id == user_id,
+            LLMUsage.purpose == "escalation_attempt",
+            LLMUsage.created_at >= cutoff,
+        )
+        .order_by(LLMUsage.created_at.asc())
+        .all()
     )
+
+    if not rows:
+        return 0, settings.ESCALATION_WINDOW_SECONDS
+
+    oldest = rows[0].created_at
+    if oldest.tzinfo is None:
+        oldest = oldest.replace(tzinfo=timezone.utc)
+
+    retry_after = max(0, int((oldest + timedelta(seconds=settings.ESCALATION_WINDOW_SECONDS) - datetime.now(timezone.utc)).total_seconds()))
+    return len(rows), retry_after
 
 
 def count_clarifications(db: DBSession, session_id: str) -> int:
-    return (
-        db.query(Message)
+    replies = (
+        db.query(Message.content)
         .filter(Message.session_id == session_id, Message.role == "assistant")
-        .filter(Message.content.contains("confirm"))
-        .count()
+        .all()
+    )
+
+    return sum(
+        1
+        for (content,) in replies
+        if content and (
+            "Before suggesting a fix" in content
+            or "Could you describe what happens" in content
+            or "exact error message" in content
+        )
     )
 
 
@@ -133,8 +173,7 @@ async def create_message(payload: MessageCreate, db: DBSession = Depends(get_db)
             symptoms = candidates[0].get("symptoms") or []
 
             if symptoms:
-                symptom_text = ", ".join(str(item) for item in symptoms[:3])
-                reply = f"Before suggesting a fix, can you confirm whether you are experiencing: {symptom_text}?"
+                reply = "Before suggesting a fix, what exact error message or code appears, and which app version are you using?"
             elif top_problem:
                 reply = f"Before suggesting a fix, can you confirm whether the problem is: {top_problem}?"
             else:
@@ -142,16 +181,31 @@ async def create_message(payload: MessageCreate, db: DBSession = Depends(get_db)
 
             source = "clarification"
         elif decision == "low":
-            if count_user_escalations(db, user.id) >= settings.RATE_LIMIT_ESCALATIONS:
-                raise HTTPException(status_code=429, detail="Escalation limit reached. Please start a new session.")
+            escalations, retry_after = count_user_escalations(db, user.id)
 
-            escalation = await escalate_to_gemini(db, session.id, history)
-            reply = (
-                "I don't have a verified fix for this issue yet. "
-                "Here is some troubleshooting guidance to try cautiously:\n"
-                f"{escalation['text']}"
-            )
-            source = "gemini"
+            if escalations >= settings.RATE_LIMIT_ESCALATIONS:
+                raise HTTPException(
+                    status_code=429,
+                    detail="Escalation limit reached. Please try again later.",
+                    headers={"Retry-After": str(retry_after)},
+                )
+
+            record_escalation_attempt(db, session.id)
+
+            try:
+                escalation = await escalate_to_gemini(db, session.id, history)
+                reply = (
+                    "I don't have a verified fix for this issue yet. "
+                    "Here is some troubleshooting guidance to try cautiously:\n"
+                    f"{escalation['text']}"
+                )
+                source = "gemini"
+            except Exception:
+                reply = (
+                    "Sorry, I couldn't reach our support engine just now. "
+                    "Please try again in a moment."
+                )
+                source = "error"
 
     assistant_message = Message(
         session_id=session.id,
