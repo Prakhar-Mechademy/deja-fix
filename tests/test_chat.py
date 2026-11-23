@@ -13,6 +13,21 @@ import app.db.models  # noqa: F401
 from app.main import app
 
 
+@pytest.fixture(autouse=True)
+def safe_external_services(monkeypatch):
+    import app.api.chat as chat_api
+
+    async def fake_escalation(db, session_id, history):
+        return {
+            "text": "This is safe test troubleshooting guidance.",
+            "input_tokens": 10,
+            "output_tokens": 5,
+            "total_tokens": 15,
+        }
+
+    monkeypatch.setattr(chat_api, "escalate_to_gemini", fake_escalation)
+
+
 @pytest.fixture
 def api_database():
     database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
@@ -81,7 +96,10 @@ def test_create_customers_sessions_and_messages(api_database):
             params={"user_id": user_a["id"]},
         )
         assert history.status_code == 200
-        assert [item["content"] for item in history.json()] == ["Sync is not working"]
+        contents = [item["content"] for item in history.json()]
+        assert contents[0] == "Sync is not working"
+        assert len(contents) == 2
+        assert "I don't have a verified fix" in contents[1]
 
 
 def test_resume_session_and_list_customer_sessions(api_database):
@@ -179,3 +197,127 @@ def test_persistence_after_opening_a_new_api_session(api_database):
         )
         assert history.status_code == 200
         assert history.json()[0]["content"] == "Persist this message"
+
+
+def test_high_confidence_uses_verified_solution_without_gemini(api_database, monkeypatch):
+    import app.api.chat as chat_api
+
+    gemini_called = False
+
+    async def unexpected_escalation(*args, **kwargs):
+        nonlocal gemini_called
+        gemini_called = True
+
+    monkeypatch.setattr(chat_api, "retrieve_solutions", lambda db, problem: [{
+        "problem": "Cloud sync is pending",
+        "fix_steps": ["Clear local sync cache", "Restart the app"],
+        "score": 0.95,
+        "confidence": "high",
+    }])
+    monkeypatch.setattr(chat_api, "get_retrieval_decision", lambda results: "high")
+    monkeypatch.setattr(chat_api, "escalate_to_gemini", unexpected_escalation)
+
+    with TestClient(app) as client:
+        user = client.post("/users", json={"external_id": "high-confidence-user"}).json()
+        session = client.post("/sessions", json={"user_id": user["id"]}).json()
+        response = client.post("/chat/message", json={
+            "session_id": session["id"],
+            "user_id": user["id"],
+            "role": "user",
+            "content": "My cloud sync is pending",
+        })
+
+    assert response.status_code == 201
+    assert response.json()["source"] == "knowledge_hub"
+    assert "Clear local sync cache" in response.json()["reply"]
+    assert gemini_called is False
+
+
+def test_uncertain_match_asks_clarification_and_retrieves_again(api_database, monkeypatch):
+    import app.api.chat as chat_api
+
+    retrieval_calls = []
+
+    def uncertain_retrieval(db, problem):
+        retrieval_calls.append(problem)
+        return [{
+            "problem": "Files fail to sync",
+            "symptoms": ["Pending sync indicator"],
+            "score": 0.60,
+            "confidence": "uncertain",
+        }]
+
+    monkeypatch.setattr(chat_api, "retrieve_solutions", uncertain_retrieval)
+    monkeypatch.setattr(chat_api, "get_retrieval_decision", lambda results: "uncertain")
+
+    with TestClient(app) as client:
+        user = client.post("/users", json={"external_id": "uncertain-user"}).json()
+        session = client.post("/sessions", json={"user_id": user["id"]}).json()
+
+        first = client.post("/chat/message", json={
+            "session_id": session["id"],
+            "user_id": user["id"],
+            "role": "user",
+            "content": "The files are not updating",
+        })
+        second = client.post("/chat/message", json={
+            "session_id": session["id"],
+            "user_id": user["id"],
+            "role": "user",
+            "content": "Yes, the sync indicator remains pending",
+        })
+
+    assert first.json()["source"] == "clarification"
+    assert "confirm" in first.json()["reply"].lower()
+    assert second.status_code == 201
+    assert len(retrieval_calls) == 2
+
+
+def test_low_confidence_calls_gemini_with_full_history(api_database, monkeypatch):
+    import app.api.chat as chat_api
+
+    seen_history = []
+
+    monkeypatch.setattr(chat_api, "retrieve_solutions", lambda db, problem: [])
+    monkeypatch.setattr(chat_api, "get_retrieval_decision", lambda results: "low")
+
+    async def fake_escalation(db, session_id, history):
+        seen_history.extend([(message.role, message.content) for message in history])
+        return {
+            "text": "Restart the device and check its storage.",
+            "input_tokens": 120,
+            "output_tokens": 30,
+            "total_tokens": 150,
+        }
+
+    monkeypatch.setattr(chat_api, "escalate_to_gemini", fake_escalation)
+
+    with TestClient(app) as client:
+        user = client.post("/users", json={"external_id": "low-confidence-user"}).json()
+        session = client.post("/sessions", json={"user_id": user["id"]}).json()
+
+        client.post("/chat/message", json={
+            "session_id": session["id"],
+            "user_id": user["id"],
+            "role": "user",
+            "content": "My device behaves strangely",
+        })
+        response = client.post("/chat/message", json={
+            "session_id": session["id"],
+            "user_id": user["id"],
+            "role": "user",
+            "content": "It freezes after startup",
+        })
+
+    assert response.status_code == 201
+    assert response.json()["source"] == "gemini"
+    assert ("user", "My device behaves strangely") in seen_history
+    assert ("user", "It freezes after startup") in seen_history
+
+
+def test_persona_never_formats_steps_not_in_verified_solution():
+    from app.services.persona import format_verified_reply
+
+    assert format_verified_reply({"fix_steps": []}) == "I don't have a verified fix for this issue yet."
+    reply = format_verified_reply({"fix_steps": ["Clear the cache"]})
+    assert "Clear the cache" in reply
