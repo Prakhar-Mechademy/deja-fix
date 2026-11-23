@@ -106,6 +106,11 @@ def test_all():
     find("reworded")
     assert any("iOS 17" in c for c in judge_calls)
 
+    # 10. A precomputed vector means no extra embedding call
+    reset({"same_fault": True})
+    m = hub.find_match("reworded", session_id=sid, user_id="u1", query_vec=VECS["reworded"])
+    assert m is not None and embed_calls == []
+
     print("All hub checks passed.")
 
 

@@ -78,8 +78,11 @@ def find_match(
     *,
     session_id: Optional[str],
     user_id: Optional[str],
+    query_vec: Optional[list[float]] = None,
 ) -> Optional[dict]:
     """Return {"solution": dict, "score": float, "reason": str} or None.
+
+    Pass query_vec if you already embedded query_text, to avoid paying for it twice.
 
     Used both to serve a customer (persona) and to detect duplicates (extractor).
     Raises llm.LLMError if the embedding call or the judge call fails outright.
@@ -88,7 +91,7 @@ def find_match(
     if not candidates:
         return None  # empty hub: no embedding or judge call needed
 
-    qvec = llm.embed(query_text, session_id=session_id, user_id=user_id)
+    qvec = query_vec or llm.embed(query_text, session_id=session_id, user_id=user_id)
     scored = sorted(((_cosine(qvec, s["embedding"]), s) for s in candidates), key=lambda t: -t[0])
     shortlist = [(sc, s) for sc, s in scored if sc >= config.BORDERLINE_THRESHOLD][:TOP_K]
 
