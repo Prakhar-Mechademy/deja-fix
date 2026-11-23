@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Déjà Fix – Support Chat</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --panel: #ffffff; --text: #1d2430; --muted: #6b7482; --line: #e1e5ea;
+    --accent: #2f6fed; --accent-text: #ffffff; --user: #2f6fed; --user-text: #ffffff;
+    --bot: #eef1f5; --hub: #e3f5e8; --llm: #fff3dc; --err: #fde8e8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151a; --panel: #1b1f26; --text: #e8ebf0; --muted: #98a1b0; --line: #2c323c;
+      --accent: #5b8cf5; --accent-text: #0e1116; --user: #3b66d4; --user-text: #ffffff;
+      --bot: #262c36; --hub: #1d3a29; --llm: #3d3320; --err: #4a2626;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); display: flex; }
+  aside { width: 270px; background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; padding: 14px; gap: 10px; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 10px 0 4px; }
+  input[type=text] { width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; }
+  button { padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); font: inherit; cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  #sessions { overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 6px; }
+  .sess { text-align: left; padding: 8px 10px; }
+  .sess small { display: block; color: var(--muted); }
+  .sess.active { border-color: var(--accent); }
+  main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  header { padding: 12px 18px; border-bottom: 1px solid var(--line); background: var(--panel); display: flex; align-items: center; gap: 10px; }
+  header .grow { flex: 1; min-width: 0; }
+  header small { color: var(--muted); display: block; }
+  #log { flex: 1; overflow-y: auto; padding: 18px; display: flex; flex-direction: column; gap: 10px; }
+  .msg { max-width: 75%; padding: 10px 13px; border-radius: 14px; white-space: pre-wrap; word-wrap: break-word; }
+  .msg.user { align-self: flex-end; background: var(--user); color: var(--user-text); border-bottom-right-radius: 4px; }
+  .msg.bot { align-self: flex-start; background: var(--bot); border-bottom-left-radius: 4px; }
+  .msg.bot.hub { background: var(--hub); }
+  .msg.bot.llm { background: var(--llm); }
+  .msg.note { align-self: center; max-width: 90%; background: transparent; color: var(--muted); font-size: 13px; text-align: center; }
+  .msg.err { align-self: center; background: var(--err); font-size: 14px; }
+  .tag { display: block; font-size: 11px; color: var(--muted); margin-bottom: 3px; text-transform: uppercase; letter-spacing: .04em; }
+  form { display: flex; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--line); background: var(--panel); }
+  form input { flex: 1; }
+  .empty { margin: auto; color: var(--muted); text-align: center; max-width: 360px; }
+  @media (max-width: 720px) { aside { width: 190px; } .msg { max-width: 90%; } }
+</style>
+</head>
+<body>
+<aside>
+  <h1>Déjà Fix</h1>
+  <div>
+    <h2>Your user ID</h2>
+    <input type="text" id="uid" placeholder="e.g. customer_a" autocomplete="off">
+    <button class="primary" id="signin" style="width:100%;margin-top:6px">Sign in</button>
+  </div>
+  <button id="newchat" disabled>+ New chat</button>
+  <h2>Your past chats</h2>
+  <div id="sessions"></div>
+  <button id="hubbtn">View knowledge hub</button>
+</aside>
+
+<main>
+  <header>
+    <div class="grow"><strong id="title">Not signed in</strong><small id="sub">Enter a user ID and sign in to start.</small></div>
+    <button id="close" disabled>End chat &amp; save fix</button>
+  </header>
+  <div id="log"><div class="empty">Sign in, start a new chat and describe your problem.<br>Different user IDs have separate histories.</div></div>
+  <form id="form">
+    <input type="text" id="text" placeholder="Describe your problem…" autocomplete="off" disabled>
+    <button class="primary" id="send" disabled>Send</button>
+  </form>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const state = { uid: null, sid: null, closed: false, busy: false };
+
+function add(kind, text, tag) {
+  const log = $("log");
+  const empty = log.querySelector(".empty");
+  if (empty) empty.remove();
+  const d = document.createElement("div");
+  d.className = "msg " + kind;
+  if (tag) { const t = document.createElement("span"); t.className = "tag"; t.textContent = tag; d.appendChild(t); }
+  d.appendChild(document.createTextNode(text));
+  log.appendChild(d);
+  log.scrollTop = log.scrollHeight;
+  return d;
+}
+
+async function api(method, path, body) {
+  const res = await fetch(path, {
+    method, headers: { "Content-Type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  let data = null;
+  try { data = await res.json(); } catch (e) {}
+  return { ok: res.ok, status: res.status, data };
+}
+
+function errorText(r) {
+  if (r.status === 429) return (r.data && r.data.message) || "Too many requests. Please wait a little.";
+  if (r.data && r.data.detail) return typeof r.data.detail === "string" ? r.data.detail : "Something went wrong.";
+  if (r.data && r.data.message) return r.data.message;
+  return "Something went wrong. Please try again.";
+}
+
+function setControls() {
+  const live = !!state.sid && !state.closed && !state.busy;
+  $("text").disabled = !live; $("send").disabled = !live;
+  $("close").disabled = !(state.sid && !state.closed) || state.busy;
+  $("newchat").disabled = !state.uid || state.busy;
+  if (live) $("text").focus();
+}
+
+async function loadSessions() {
+  const r = await api("GET", "/users/" + encodeURIComponent(state.uid) + "/sessions");
+  const box = $("sessions"); box.innerHTML = "";
+  if (!r.ok) return;
+  if (!r.data.length) { box.textContent = "No chats yet."; box.style.color = "var(--muted)"; return; }
+  box.style.color = "";
+  r.data.forEach((s) => {
+    const b = document.createElement("button");
+    b.className = "sess" + (s.id === state.sid ? " active" : "");
+    const t = document.createElement("span"); t.textContent = s.title || "Untitled chat";
+    const small = document.createElement("small");
+    small.textContent = new Date(s.started_at).toLocaleString() + " · " + s.status;
+    b.append(t, small);
+    b.onclick = () => openSession(s.id);
+    box.appendChild(b);
+  });
+}
+
+function resetLog() { $("log").innerHTML = ""; }
+
+async function newChat() {
+  state.busy = true; setControls();
+  const r = await api("POST", "/sessions", { user_id: state.uid });
+  state.busy = false;
+  if (!r.ok) { add("err", errorText(r)); setControls(); return; }
+  state.sid = r.data.session_id; state.closed = false;
+  resetLog();
+  $("title").textContent = "New chat"; $("sub").textContent = "Signed in as " + state.uid;
+  add("bot", r.data.greeting || "Hi! Tell me what's going wrong and I'll see if we've fixed it before.", "Assistant");
+  setControls(); loadSessions();
+}
+
+async function openSession(id) {
+  const r = await api("GET", "/sessions/" + id + "?user_id=" + encodeURIComponent(state.uid));
+  if (!r.ok) { add("err", errorText(r)); return; }
+  state.sid = id; state.closed = r.data.session.status === "closed";
+  resetLog();
+  $("title").textContent = r.data.session.title || "Untitled chat";
+  $("sub").textContent = "Signed in as " + state.uid + " · " + r.data.session.status;
+  r.data.messages.forEach((m) => {
+    if (m.role === "user") add("user", m.content);
+    else add("bot" + (m.source === "hub" ? " hub" : m.source === "llm" ? " llm" : ""), m.content, label(m.source));
+  });
+  if (state.closed) {
+    const b = document.createElement("button"); b.textContent = "Resume this chat"; b.className = "primary";
+    b.onclick = async () => {
+      const rr = await api("POST", "/sessions/" + id + "/resume", { user_id: state.uid });
+      if (rr.ok) { state.closed = false; b.remove(); $("sub").textContent = "Signed in as " + state.uid + " · active"; setControls(); loadSessions(); }
+    };
+    const wrap = document.createElement("div"); wrap.className = "msg note"; wrap.appendChild(b);
+    $("log").appendChild(wrap);
+  }
+  setControls(); loadSessions();
+}
+
+function label(src) {
+  return { hub: "From verified fixes", persona: "Assistant", persona_clarify: "Assistant", llm: "From backend support AI" }[src] || "Assistant";
+}
+
+$("signin").onclick = async () => {
+  const uid = $("uid").value.trim();
+  if (!uid) return;
+  state.uid = uid; state.sid = null; state.closed = false;
+  await api("POST", "/users", { user_id: uid });
+  resetLog();
+  $("title").textContent = "Hello, " + uid; $("sub").textContent = "Start a new chat or open a past one.";
+  add("note", "Signed in. Click “+ New chat” to begin.");
+  setControls(); loadSessions();
+};
+$("uid").addEventListener("keydown", (e) => { if (e.key === "Enter") $("signin").click(); });
+$("newchat").onclick = newChat;
+
+$("form").onsubmit = async (e) => {
+  e.preventDefault();
+  const text = $("text").value.trim();
+  if (!text || !state.sid || state.closed) return;
+  $("text").value = "";
+  add("user", text);
+  state.busy = true; setControls();
+  const thinking = add("note", "Thinking…");
+  const r = await api("POST", "/sessions/" + state.sid + "/messages", { user_id: state.uid, text });
+  thinking.remove();
+  state.busy = false;
+  if (r.ok) {
+    const src = r.data.source;
+    add("bot" + (src === "hub" ? " hub" : src === "llm" ? " llm" : ""), r.data.reply, label(src));
+  } else if (r.status === 409) {
+    state.closed = true; add("err", errorText(r));
+  } else {
+    add("err", errorText(r));
+  }
+  setControls();
+};
+
+$("close").onclick = async () => {
+  if (!state.sid) return;
+  state.busy = true; setControls();
+  add("note", "Saving this chat…");
+  const r = await api("POST", "/sessions/" + state.sid + "/close", { user_id: state.uid });
+  state.busy = false;
+  if (!r.ok) { add("err", errorText(r)); setControls(); return; }
+  state.closed = true;
+  const x = r.data.extraction || {};
+  let msg = "Chat closed. ";
+  if (x.error) msg += "Saving the fix hit a temporary problem and will be retried later.";
+  else if ((x.saved || []).length) msg += "Saved " + x.saved.length + " new solution(s) to the knowledge hub.";
+  else if ((x.merged || []).length) msg += "This matched an existing solution, so its confirmation count went up.";
+  else msg += "Nothing was saved because no fix was confirmed.";
+  add("note", msg);
+  $("sub").textContent = "Signed in as " + state.uid + " · closed";
+  setControls(); loadSessions();
+};
+
+$("hubbtn").onclick = async () => {
+  const r = await api("GET", "/solutions");
+  if (!r.ok) { add("err", errorText(r)); return; }
+  if (!r.data.length) { add("note", "The knowledge hub is empty."); return; }
+  const lines = r.data.map((s) => "#" + s.id + " " + s.title + " (confirmed " + s.confirmed_count + "×)\n   Steps: " + (s.fix_steps || []).join(" → "));
+  add("note", "Knowledge hub:\n" + lines.join("\n"));
+};
+</script>
+</body>
+</html>
