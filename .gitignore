@@ -1,2 +1,6 @@
-.env 
-requirements.txt 
+.env
+api_key.env
+*.sqlite3
+__pycache__/
+.pytest_cache/
+.venv/
