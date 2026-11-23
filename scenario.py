@@ -282,7 +282,9 @@ def run_self_test() -> None:
     session_a = a1["session_id"]
     first = agent.process_user_message(session_a, "I'm Alex Morgan (alex.morgan@example.test). My toaster lever pops back up and won't stay down. Order #ZX-48291.")
     assert first["source"] == "escalation"
-    assert agent.process_user_message(session_a, "That fixed it; the lever stays down now.")["saved_solutions"] == 1
+    assert "Did that fix the problem? Reply yes or no." in first["reply"]
+    confirmed_fix = agent.process_user_message(session_a, "Yes")
+    assert confirmed_fix["saved_solutions"] == 1, confirmed_fix
     with agent.connect_db() as db:
         solution = dict(db.execute("SELECT * FROM solutions").fetchone())
     stored = json.dumps(solution).lower()
@@ -299,6 +301,10 @@ def run_self_test() -> None:
     reused = agent.process_user_message(session_b, "Yes.")
     assert reused["source"] == "knowledge_hub"
     assert "customer-a" in reused["reply"] and session_a in reused["reply"]
+    assert "Did that fix the problem?" in reused["reply"]
+    assert agent.process_user_message(session_b, "Yes")["source"] == "hub_confirmation"
+    with agent.connect_db() as db:
+        assert db.execute("SELECT COUNT(*) FROM solutions").fetchone()[0] == 1
     c1 = agent.create_session(agent.CreateSessionRequest(user_id="customer-c", toaster_model_id="toaster-model-1"))
     assert agent.process_user_message(c1["session_id"], "My toaster sparks and has a burnt smell.")["source"] == "escalation"
     other_model = agent.create_session(agent.CreateSessionRequest(user_id="customer-other-model", toaster_model_id="toaster-model-2"))
@@ -333,6 +339,16 @@ def run_self_test() -> None:
         assert db.execute("SELECT COUNT(*) FROM toaster_models WHERE display_name = 'BrandX HeatMaster 900'").fetchone()[0] == 1
         assert db.execute("SELECT toaster_model_id FROM sessions WHERE session_id = ?", (new_user["session_id"],)).fetchone()[0] == confirmed_model["toaster_model_id"]
         assert db.execute("SELECT toaster_model_id FROM solutions WHERE toaster_model_id = ?", (confirmed_model["toaster_model_id"],)).fetchone()[0] == confirmed_model["toaster_model_id"]
+
+    selected_without_llm = agent.create_session(agent.CreateSessionRequest(user_id="direct-model-select"))
+    picked_model = agent.process_user_message(selected_without_llm["session_id"], "model 5")
+    assert picked_model["source"] == "model_selected", picked_model
+    assert picked_model["toaster_model_id"] == "toaster-model-5"
+    with agent.connect_db() as db:
+        assert db.execute(
+            "SELECT COUNT(*) FROM llm_calls WHERE session_id = ? AND call_type = 'model_detection'",
+            (selected_without_llm["session_id"],),
+        ).fetchone()[0] == 0
     print(f"PASS: model field, same-model reuse, cross-model isolation, PII removal, negative match, unconfirmed exclusion, memory isolation; tokens session1={first_cost}, session2={reuse_cost}")
 
 

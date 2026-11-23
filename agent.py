@@ -431,55 +431,40 @@ def parse_json_response(text: str) -> Any:
         return json.loads(match.group(0))
 
 
-def identify_toaster_model(session_id: str, user_text: str) -> dict[str, Any]:
-    """Use the configured LLM to match a known model or identify a proposed new toaster model."""
-    provider = get_provider()
-    if not getattr(provider, "has_api_key", True):
-        raise RuntimeError("Model identification needs a configured LLM provider")
+def model_selection_prompt() -> str:
     models = get_toaster_models()
-    model_list = [{"model_id": model_id, "name": name} for model_id, name in models.items()]
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                INSTRUCTION_GUARD
-                + "Identify the toaster model the user says they own. Do not guess from the problem description. "
-                "Compare an explicit model name against the catalog and return a matching model_id only when it is clearly the same. "
-                "If the user explicitly names another toaster model not in the catalog, set is_toaster_model=true, "
-                "known_model_id=null, and return its concise brand/model name as proposed_name. "
-                "If the text is not an explicit toaster model or could be another appliance, set is_toaster_model=false. "
-                "Do not add anything to the catalog; the user must confirm the proposed name in a later turn. "
-                "Return JSON only: {\"is_toaster_model\":true|false,\"known_model_id\":string|null,\"proposed_name\":string|null}. "
-                f"Current catalog: {json.dumps(model_list)}"
-            ),
-        },
-        {"role": "user", "content": user_text},
-    ]
-    model = getattr(provider, "chat_model", "configured-chat-model")
-    try:
-        response, usage = provider.chat(messages, json_mode=True)
-        result = parse_json_response(response)
-        if not isinstance(result, dict) or not isinstance(result.get("is_toaster_model"), bool):
-            raise ValueError("Malformed model identification response")
-        known_model_id = result.get("known_model_id")
-        if not result["is_toaster_model"] or known_model_id not in models:
-            known_model_id = None
-        proposed_name = result.get("proposed_name")
-        if not isinstance(proposed_name, str):
-            proposed_name = None
-        if result["is_toaster_model"] and not known_model_id:
-            proposed_name = " ".join((proposed_name or "").split())[:120]
-            if not proposed_name:
-                raise ValueError("The model name was not identified")
-        log_call(session_id, "model_detection", model, usage)
-        return {
-            "is_toaster_model": result["is_toaster_model"],
-            "known_model_id": known_model_id,
-            "proposed_name": proposed_name,
-        }
-    except Exception:
-        log_call(session_id, "model_detection", model, outcome="error")
-        raise
+    options = "\n".join(
+        f"  {index}. {name}"
+        for index, name in enumerate(models.values(), start=1)
+    )
+    return (
+        "Which toaster model do you have? Select a number or type the exact name of another model:\n"
+        f"{options}\n"
+        "For a new model, I will ask you to confirm its name before adding it."
+    )
+
+
+def match_known_toaster_model(user_text: str) -> tuple[str, str] | None:
+    """Match an explicit menu number, catalog ID, or catalog display name without an LLM call."""
+    models = get_toaster_models()
+    text = " ".join(user_text.strip().casefold().split())
+    if not text:
+        return None
+    indexed = list(models.items())
+    number_match = re.fullmatch(r"(?:model\s*)?(\d+)", text)
+    if number_match:
+        index = int(number_match.group(1)) - 1
+        if 0 <= index < len(indexed):
+            model_id, name = indexed[index]
+            return model_id, name
+    compact = re.sub(r"[^a-z0-9]+", "", text)
+    for model_id, name in indexed:
+        if compact in {
+            re.sub(r"[^a-z0-9]+", "", model_id.casefold()),
+            re.sub(r"[^a-z0-9]+", "", name.casefold()),
+        }:
+            return model_id, name
+    return None
 
 
 def save_message(session_id: str, user_id: str, role: str, content: str) -> None:
@@ -514,7 +499,7 @@ def is_positive_confirmation(text: str, last_assistant: str) -> bool:
     if re.search(r"\b(it worked|that worked|fixed it|problem is solved|issue is resolved|working now|all fixed|solved now|that fixed it)\b", text, re.I):
         return True
     return bool(re.fullmatch(r"\s*(yes|yep|yeah|correct|confirmed|it is|that's right)[.!\s]*", text, re.I)) and bool(
-        re.search(r"\b(confirm|solved|fixed|work|working)\b", last_assistant, re.I)
+        re.search(r"\b(confirm|solved|solve|fix|fixed|work|working)\b", last_assistant, re.I)
     )
 
 
@@ -577,6 +562,25 @@ def solution_text(row: sqlite3.Row) -> str:
         f"Solution / fix steps:\n{row['solution'] or row['fix_steps']}\n"
         f"Fixes that did not work: {row['fixes_that_did_not_work'] or 'Not recorded.'}"
     )
+
+
+def add_outcome_question(reply: str) -> str:
+    if re.search(r"\b(did (?:that|this|it) (?:work|fix|solve)|is it working|has it fixed)\b", reply, re.I):
+        return reply
+    return f"{reply.rstrip()}\nDid that fix the problem? Reply yes or no."
+
+
+def prepare_escalation_followup(session_id: str, reply: str) -> str:
+    unavailable = reply.startswith((
+        "I couldn't reach the support assistant",
+        "I couldn't get a reliable support response",
+    ))
+    with connect_db() as db:
+        db.execute(
+            "UPDATE sessions SET pending_kind = ? WHERE session_id = ?",
+            (None if unavailable else "llm_outcome", session_id),
+        )
+    return reply if unavailable else add_outcome_question(reply)
 
 
 def get_solution_provenance(solution_id: int) -> list[dict[str, str]]:
@@ -761,7 +765,7 @@ def chat_escalation(session_id: str) -> str:
         return response.strip()
     except Exception:
         log_call(session_id, "escalation", model, outcome="error")
-        logger.exception("Escalation request failed")
+        logger.warning("Escalation request failed; provider unavailable or rate-limited")
         return "I couldn't get a reliable support response just now. Your conversation is saved; please try again later."
 
 
@@ -803,68 +807,70 @@ def process_user_message(session_id: str, content: str) -> dict[str, Any]:
                         "UPDATE sessions SET pending_model_name = NULL, pending_model_id = NULL WHERE session_id = ?",
                         (session_id,),
                     )
-                answer = "Okay. Please type the exact toaster brand and model from its label, or choose one of the listed models."
+                answer = f"Okay. {model_selection_prompt()}"
                 return {"reply": assistant_reply(session_id, user_id, answer), "source": "model_selection_required", "saved_solutions": 0}
 
-        try:
-            detected = identify_toaster_model(session_id, content)
-        except Exception:
-            logger.exception("Could not identify toaster model")
-            answer = "I couldn't verify that model just now. Please try again with the exact brand and model printed on the toaster."
-            return {"reply": assistant_reply(session_id, user_id, answer), "source": "model_detection_unavailable", "saved_solutions": 0}
-
-        if detected["known_model_id"]:
-            model_id = detected["known_model_id"]
-            model_name = TOASTER_MODELS[model_id]
+        known_model = match_known_toaster_model(content)
+        if known_model:
+            model_id, model_name = known_model
             with connect_db() as db:
                 db.execute(
-                    "UPDATE sessions SET pending_model_name = ?, pending_model_id = ? WHERE session_id = ?",
-                    (model_name, model_id, session_id),
+                    "UPDATE sessions SET toaster_model_id = ?, updated_at = ? WHERE session_id = ?",
+                    (model_id, utc_now(), session_id),
                 )
-            answer = f"I think you have {model_name}. Is that correct? Reply yes or no."
-            return {"reply": assistant_reply(session_id, user_id, answer), "source": "model_confirmation_required", "toaster_model_id": model_id, "saved_solutions": 0}
+            answer = f"Selected {model_name}. What problem are you having with it?"
+            return {"reply": assistant_reply(session_id, user_id, answer), "source": "model_selected", "toaster_model_id": model_id, "saved_solutions": 0}
 
-        if detected["is_toaster_model"] and detected["proposed_name"]:
-            proposed_name = detected["proposed_name"]
-            with connect_db() as db:
-                existing = db.execute(
-                    "SELECT model_id, display_name FROM toaster_models WHERE lower(display_name) = lower(?)",
-                    (proposed_name,),
-                ).fetchone()
-                if existing:
-                    proposed_id, proposed_name = existing["model_id"], existing["display_name"]
-                else:
-                    proposed_id = None
-                db.execute(
-                    "UPDATE sessions SET pending_model_name = ?, pending_model_id = ? WHERE session_id = ?",
-                    (proposed_name, proposed_id, session_id),
-                )
-            answer = f"I don't have {proposed_name} in my model list. Is that the exact name of a toaster model? If you confirm, I'll add it. Reply yes or no."
-            return {"reply": assistant_reply(session_id, user_id, answer), "source": "new_model_confirmation_required", "saved_solutions": 0}
-
-        model_options = ", ".join(TOASTER_MODELS.values())
-        answer = f"I couldn't identify that as a toaster model. Please enter the brand and model printed on the toaster. Known models: {model_options}."
-        return {
-            "reply": assistant_reply(session_id, user_id, answer),
-            "source": "model_selection_required",
-            "saved_solutions": 0,
-        }
-    if is_positive_confirmation(content, last_reply):
-        try:
-            count = save_confirmed_solutions(session_id)
-            message = "Thanks for confirming. I saved the verified fix to the knowledge hub." if count else (
-                "Thanks for confirming. I couldn't identify a complete reusable fix to save, so nothing was added."
+        proposed_name = " ".join(content.strip().split())[:120]
+        with connect_db() as db:
+            existing = db.execute(
+                "SELECT model_id, display_name FROM toaster_models WHERE lower(display_name) = lower(?)",
+                (proposed_name,),
+            ).fetchone()
+            proposed_id = existing["model_id"] if existing else None
+            if existing:
+                proposed_name = existing["display_name"]
+            db.execute(
+                "UPDATE sessions SET pending_model_name = ?, pending_model_id = ? WHERE session_id = ?",
+                (proposed_name, proposed_id, session_id),
             )
-        except Exception:
-            logger.exception("Could not extract confirmed fix")
-            message = "Thanks for confirming. I couldn't safely save the fix this time; no unverified entry was added."
-            count = 0
-        return {"reply": assistant_reply(session_id, user_id, message), "source": "confirmation", "saved_solutions": count}
+        answer = f"I don't have '{proposed_name}' in my list. Is this the exact name of a toaster model? Reply yes to confirm or no to choose from the list."
+        return {"reply": assistant_reply(session_id, user_id, answer), "source": "new_model_confirmation_required", "saved_solutions": 0}
+
+    pending_kind = session["pending_kind"]
+    if pending_kind in {"llm_outcome", "hub_outcome"}:
+        if is_positive_confirmation(content, last_reply):
+            if pending_kind == "llm_outcome":
+                try:
+                    count = save_confirmed_solutions(session_id)
+                except Exception:
+                    logger.exception("Could not extract confirmed fix")
+                    count = 0
+                message = (
+                    "Thanks for confirming. I saved the verified solution to the database."
+                    if count
+                    else "Thanks for confirming. I couldn't extract a complete reusable fix, so nothing was saved."
+                )
+                source = "confirmation"
+            else:
+                message = "Thanks for confirming. That fix was already in the verified knowledge base; I haven't created a duplicate."
+                count = 0
+                source = "hub_confirmation"
+            with connect_db() as db:
+                db.execute("UPDATE sessions SET pending_kind = NULL WHERE session_id = ?", (session_id,))
+            return {"reply": assistant_reply(session_id, user_id, message), "source": source, "saved_solutions": count}
+        if is_negative_confirmation(content) or re.fullmatch(r"\s*(no|nope|not yet|still broken)[.!\s]*", content, re.I):
+            with connect_db() as db:
+                db.execute("UPDATE sessions SET pending_kind = NULL, pending_solution_id = NULL WHERE session_id = ?", (session_id,))
+            answer = chat_escalation(session_id)
+            answer = prepare_escalation_followup(session_id, answer)
+            return {"reply": assistant_reply(session_id, user_id, answer), "source": "escalation", "saved_solutions": 0}
 
     if is_negative_confirmation(content):
         with connect_db() as db:
             db.execute("UPDATE sessions SET pending_solution_id = NULL, pending_kind = NULL WHERE session_id = ?", (session_id,))
         answer = chat_escalation(session_id)
+        answer = prepare_escalation_followup(session_id, answer)
         return {"reply": assistant_reply(session_id, user_id, answer), "source": "escalation", "saved_solutions": 0}
 
     pending_id = session["pending_solution_id"]
@@ -873,13 +879,14 @@ def process_user_message(session_id: str, content: str) -> dict[str, Any]:
             with connect_db() as db:
                 db.execute("UPDATE sessions SET pending_solution_id = NULL, pending_kind = NULL WHERE session_id = ?", (session_id,))
             answer = chat_escalation(session_id)
+            answer = prepare_escalation_followup(session_id, answer)
             return {"reply": assistant_reply(session_id, user_id, answer), "source": "escalation", "saved_solutions": 0}
         if re.fullmatch(r"\s*(yes|yep|yeah|same issue|correct|that's right)[.!\s]*", content, re.I):
             with connect_db() as db:
                 row = db.execute("SELECT * FROM solutions WHERE solution_id = ? AND verified = 1", (pending_id,)).fetchone()
-                db.execute("UPDATE sessions SET pending_solution_id = NULL, pending_kind = NULL WHERE session_id = ?", (session_id,))
+                db.execute("UPDATE sessions SET pending_solution_id = NULL, pending_kind = 'hub_outcome' WHERE session_id = ?", (session_id,))
             if row:
-                reply = f"{solution_text(row)}\n{format_solution_provenance(row['solution_id'])}"
+                reply = add_outcome_question(f"{solution_text(row)}\n{format_solution_provenance(row['solution_id'])}")
                 return {"reply": assistant_reply(session_id, user_id, reply), "source": "knowledge_hub", "solution_id": row["solution_id"], "provenance": get_solution_provenance(row["solution_id"]), "saved_solutions": 0}
 
     user_messages = [message["content"] for message in transcript(session_id) if message["role"] == "user"]
@@ -895,7 +902,7 @@ def process_user_message(session_id: str, content: str) -> dict[str, Any]:
         )
         return {"reply": assistant_reply(session_id, user_id, question), "source": "knowledge_hub_clarification", "solution_id": match["solution_id"], "provenance": get_solution_provenance(match["solution_id"]), "similarity": round(score, 4), "saved_solutions": 0}
 
-    answer = chat_escalation(session_id)
+    answer = prepare_escalation_followup(session_id, chat_escalation(session_id))
     return {"reply": assistant_reply(session_id, user_id, answer), "source": "escalation", "similarity": round(score, 4), "saved_solutions": 0}
 
 
@@ -930,7 +937,7 @@ def create_session(body: CreateSessionRequest) -> dict[str, Any]:
     greeting = (
         f"Welcome back. Last time with your {model_name}, we worked on: {prior['problem']}. What is happening now?"
         if model_name and prior else f"Hi! I can help troubleshoot your {model_name}. What is happening?"
-        if model_name else "Which toaster model do you have? Please type the exact brand and model from its label. I will check it and ask you to confirm before using it."
+        if model_name else model_selection_prompt()
     )
     save_message(session_id, user_id, "assistant", greeting)
     return {"session_id": session_id, "user_id": user_id, "toaster_model_id": toaster_model_id, "greeting": greeting}

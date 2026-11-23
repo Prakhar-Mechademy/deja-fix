@@ -20,7 +20,7 @@ Start the chat:
 python3 scenario.py
 ```
 
-Enter a stable customer ID. If the ID has previous sessions, choose one to resume or choose `N` to start a new session. The assistant asks for the toaster model, verifies it against the five starter model names, and requests confirmation before adding a new model to the catalog. A fix is saved only after an explicit customer confirmation. The terminal prints the session's input/output token totals when you exit.
+Enter a stable customer ID. If the ID has previous sessions, choose one to resume or choose `N` to start a new session. Select one of the five listed models by number/name, or type another model name. Selecting a listed model is handled locally and does not use an LLM call. For a new name, the assistant asks you to confirm that it is a toaster model before adding it to the catalog. After suggesting troubleshooting steps or presenting a stored fix, the assistant asks whether it worked. Reply `yes` to save a newly confirmed LLM solution; a reused verified fix is not saved a second time. Reply `no` to continue troubleshooting. The terminal prints the session's input/output token totals when you exit.
 
 In chat, `/history` shows the transcript, `/sessions` lists sessions for that customer, `/solutions` displays fixes for the selected toaster model, `/model` starts a new session for another model, and `/quit` exits.
 
