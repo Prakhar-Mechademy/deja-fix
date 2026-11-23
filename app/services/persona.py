@@ -9,6 +9,24 @@ Use the fixed tone: empathetic, direct, and actionable.
 """
 
 
+def summarize_last_session(history: list) -> str:
+    user_messages = [
+        getattr(message, "content", "")
+        for message in history
+        if getattr(message, "role", None) == "user"
+    ]
+
+    if not user_messages:
+        return "Welcome back. How can I help you today?"
+
+    last_problem = user_messages[-1].strip()
+
+    if len(last_problem) > 180:
+        last_problem = last_problem[:177].rstrip() + "..."
+
+    return f"Welcome back. Last time, we discussed: {last_problem}"
+
+
 def format_verified_reply(solution: dict) -> str:
     fix_steps = solution.get("fix_steps") or []
 

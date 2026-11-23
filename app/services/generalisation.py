@@ -96,7 +96,18 @@ def generalise_extracted_solution(item: ExtractedSolution, confirmed: bool = Tru
         "confirmed": confirmed,
     }
 
-    vector = embed_text(canonical["canonical_title"] + " " + canonical["problem_description"])
+    embedding_text = " ".join([
+        canonical["canonical_title"],
+        canonical["problem_description"],
+        " ".join(canonical["symptoms"]),
+        canonical["device"] or "",
+        canonical["operating_system"] or "",
+        canonical["application_name"] or "",
+        canonical["app_version"] or "",
+        " ".join(canonical["fix_steps"]),
+    ])
+
+    vector = embed_text(embedding_text)
     canonical["embedding"] = serialize_embedding(vector)
     canonical["embedding_model"] = settings.EMBEDDING_MODEL
 
