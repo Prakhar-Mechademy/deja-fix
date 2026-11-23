@@ -13,7 +13,7 @@ from . import config, db, extractor, llm, persona
 log = logging.getLogger("dejafix")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 app = FastAPI(title="Deja Fix", version="1.0")
-STATIC = Path(__file__).parent / "static"
+STATIC = Path(__file__).parent 
 
 
 class StartSession(BaseModel):
